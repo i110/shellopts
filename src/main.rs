@@ -2,6 +2,7 @@ use clap::{Arg, ArgMatches, Command, Parser};
 use regex::Regex;
 use serde::{de::Visitor, Deserialize, Deserializer};
 use serde_json;
+use shell_quote::Bash;
 use std::env;
 use std::ffi::OsString;
 use std::fmt::Write;
@@ -170,7 +171,7 @@ struct Parsed<'a> {
     arguments: Vec<&'a str>,
 }
 
-fn generate_script(parsed: Parsed, app_opts: AppOpts) -> String {
+fn generate_script(parsed: Parsed, app_opts: AppOpts) -> anyhow::Result<String> {
     let mut buffer = String::new();
 
     for (opt, value) in parsed.options {
@@ -180,13 +181,14 @@ fn generate_script(parsed: Parsed, app_opts: AppOpts) -> String {
             opt.name.as_str().to_uppercase()
         };
 
-        writeln!(&mut buffer, "export {}={}", varname, value).unwrap();
+        let escaped = String::from_utf8(Bash::quote_vec(value))?;
+        writeln!(&mut buffer, "export {}={}", varname, escaped).unwrap();
     }
 
     if parsed.arguments.len() != 0 {
-        writeln!(&mut buffer, "set -- {}", parsed.arguments.join(" "));
+        writeln!(&mut buffer, "set -- {}", parsed.arguments.join(" "))?;
     }
-    buffer
+    Ok(buffer)
 }
 
 fn parse<'a>(schema: &'a Schema, m: &'a ArgMatches) -> Parsed<'a> {
@@ -245,7 +247,7 @@ fn main() -> anyhow::Result<()> {
     let m = command.try_get_matches_from(target_args)?;
 
     let parsed = parse(&schema, &m);
-    let script = generate_script(parsed, app_opts);
+    let script = generate_script(parsed, app_opts)?;
     println!("{}", script);
 
     anyhow::Ok(())
